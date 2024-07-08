@@ -1,12 +1,13 @@
-"use client"
 // CsvReader.tsx
+"use client"
 import React, { useEffect, useState } from 'react';
-import { DatePicker, Tabs, Select } from 'antd';
+import { DatePicker, Tabs, Select, Table } from 'antd';
 import 'antd/dist/reset.css';
 import dayjs, { Dayjs } from 'dayjs';
 import { Column } from 'react-table';
 import Spreadsheet from '@/components/Spreadsheet';
-import ForecastChart from '@/components/LineChart'
+import LineChart from '@/components/LineChart';  // Import LineChart instead of ForecastChart
+import calculateStatistics from '@/components/statistics';  // Import the function from the correct location
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -23,25 +24,34 @@ interface ApiResponse {
 
 const CsvReader: React.FC = () => {
   const [data, setData] = useState<ApiResponse | CsvData[]>({});
-  const [filteredData, setFilteredData] = useState<ApiResponse | CsvData[]>({});
+  const [filteredData, setFilteredData] = useState<CsvData[]>([]);
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate, setEndDate] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string>('all');
+  const [statistics, setStatistics] = useState<any>(null);
 
   useEffect(() => {
     fetchData(selectedFile);
   }, [selectedFile]);
 
+  useEffect(() => {
+    if (Array.isArray(filteredData)) {
+      const stats = calculateStatistics(filteredData);
+      setStatistics(stats);
+    }
+  }, [filteredData]);
+
   const fetchData = async (file: string) => {
     try {
-      const url = file === 'all' 
+      const url = file === 'all'
         ? 'http://localhost:3000/api/csv-data'
         : `http://localhost:3000/api/csv-data/${file}`;
-      
+
       const response = await fetch(url);
       const jsonData: ApiResponse | CsvData[] = await response.json();
       setData(jsonData);
-      setFilteredData(jsonData);
+      const allData = Array.isArray(jsonData) ? jsonData : Object.values(jsonData).flat();
+      setFilteredData(allData); // Flatten data for filtering
     } catch (error) {
       console.error('Error fetching data:', error);
     }
@@ -57,11 +67,13 @@ const CsvReader: React.FC = () => {
       setEndDate(formattedEnd);
 
       const filtered = filterDataByDateRange(data, formattedStart, formattedEnd);
-      setFilteredData(filtered);
+      const allFilteredData = Array.isArray(filtered) ? filtered : Object.values(filtered).flat();
+      setFilteredData(allFilteredData); // Flatten filtered data for calculations
     } else {
       setStartDate(null);
       setEndDate(null);
-      setFilteredData(data);
+      const allData = Array.isArray(data) ? data : Object.values(data).flat();
+      setFilteredData(allData); // Flatten data for calculations
     }
   };
 
@@ -114,9 +126,39 @@ const CsvReader: React.FC = () => {
       children: (
         <div className="p-4">
           <h1 className="text-2xl font-bold mb-4">Price Forecast Graph</h1>
-          <ForecastChart data={filteredData} />
+          <LineChart data={filteredData} />
         </div>
       )
+    },
+    {
+      key: '3',
+      label: 'Statistics',
+      children: (
+        <div className="p-4">
+          <h1 className="text-2xl font-bold mb-4">Statistics</h1>
+          {statistics ? (
+            <Table
+              dataSource={[
+                { parameter: 'NOBS', value: statistics.NOBS },
+                { parameter: 'MAPE', value: statistics.MAPE },
+                { parameter: 'RMSE', value: statistics.RMSE },
+                { parameter: 'PEAK', value: statistics.PEAK },
+                { parameter: 'AVERAGE', value: statistics.AVERAGE },
+                { parameter: 'ENERGY', value: statistics.ENERGY },
+              ]}
+              columns={[
+                { title: 'Parameter', dataIndex: 'parameter', key: 'parameter' },
+                { title: 'Value', dataIndex: 'value', key: 'value' },
+              ]}
+              pagination={false}
+              rowKey="parameter"
+              bordered
+            />
+          ) : (
+            <p>No data available for statistics</p>
+          )}
+        </div>
+      ),
     },
   ];
 
