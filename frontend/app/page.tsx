@@ -1,13 +1,12 @@
-// CsvReader.tsx
-"use client"
-import React, { useEffect, useState } from 'react';
-import { DatePicker, Tabs, Select, Table } from 'antd';
+// Dashboard.tsx
+"use client";
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { DatePicker, Tabs, Select, Table, Button } from 'antd';
 import 'antd/dist/reset.css';
 import dayjs, { Dayjs } from 'dayjs';
-import { Column } from 'react-table';
 import Spreadsheet from '@/components/Spreadsheet';
-import LineChart from '@/components/LineChart';  // Import LineChart instead of ForecastChart
-import calculateStatistics from '@/components/statistics';  // Import the function from the correct location
+import LineChart from '@/components/LineChart';
+import calculateStatistics from '@/components/statistics';
 
 const { RangePicker } = DatePicker;
 const { Option } = Select;
@@ -16,109 +15,97 @@ interface CsvData {
   date: string;
   time: string;
   price_fcst: string;
+  source: string;
 }
 
 interface ApiResponse {
   [key: string]: CsvData[];
 }
 
-const CsvReader: React.FC = () => {
-  const [data, setData] = useState<ApiResponse | CsvData[]>({});
-  const [filteredData, setFilteredData] = useState<CsvData[]>([]);
+const Dashboard: React.FC = () => {
+  const [data, setData] = useState<ApiResponse>({});
   const [startDate, setStartDate] = useState<string | null>(null);
   const [endDate, setEndDate] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string>('all');
-  const [statistics, setStatistics] = useState<any>(null);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [csvFileNames, setCsvFileNames] = useState<string[]>([]);
 
-  useEffect(() => {
-    fetchData(selectedFile);
-  }, [selectedFile]);
-
-  useEffect(() => {
-    if (Array.isArray(filteredData)) {
-      const stats = calculateStatistics(filteredData);
-      setStatistics(stats);
-    }
-  }, [filteredData]);
-
-  const fetchData = async (file: string) => {
+  const fetchCSVFileNames = useCallback(async () => {
     try {
-      const url = file === 'all'
-        ? 'http://localhost:3000/api/csv-data'
-        : `http://localhost:3000/api/csv-data/${file}`;
+      const response = await fetch('http://localhost:3000/api/csv-files');
+      if (!response.ok) throw new Error('Failed to fetch CSV file names');
+      const fileNames: string[] = await response.json();
+      setCsvFileNames(fileNames);
+    } catch (error) {
+      console.error('Error fetching CSV file names:', error);
+    }
+  }, []);
 
+  const fetchData = useCallback(async (files: string[]) => {
+    if (files.length === 0) {
+      setData({});
+      return;
+    }
+    try {
+      const url = `http://localhost:3000/api/csv-data?files=${files.join(',')}`;
       const response = await fetch(url);
-      const jsonData: ApiResponse | CsvData[] = await response.json();
+      if (!response.ok) throw new Error('Failed to fetch data');
+      const jsonData: ApiResponse = await response.json();
       setData(jsonData);
-      const allData = Array.isArray(jsonData) ? jsonData : Object.values(jsonData).flat();
-      setFilteredData(allData); // Flatten data for filtering
     } catch (error) {
       console.error('Error fetching data:', error);
     }
-  };
+  }, []);
 
-  const handleDateChange = (dates: [Dayjs, Dayjs] | null) => {
-    if (dates) {
-      const [start, end] = dates;
-      const formattedStart = start.format('YYYYMMDD');
-      const formattedEnd = end.format('YYYYMMDD');
+  useEffect(() => {
+    fetchCSVFileNames();
+  }, [fetchCSVFileNames]);
 
-      setStartDate(formattedStart);
-      setEndDate(formattedEnd);
+  useEffect(() => {
+    fetchData(selectedFiles);
+  }, [selectedFiles, fetchData]);
 
-      const filtered = filterDataByDateRange(data, formattedStart, formattedEnd);
-      const allFilteredData = Array.isArray(filtered) ? filtered : Object.values(filtered).flat();
-      setFilteredData(allFilteredData); // Flatten filtered data for calculations
+  const handleDateChange = useCallback((
+    dates: [Dayjs | null, Dayjs | null] | null,
+    dateStrings: [string, string]
+  ) => {
+    if (dates && dates[0] && dates[1]) {
+      setStartDate(dates[0].format('YYYYMMDD'));
+      setEndDate(dates[1].format('YYYYMMDD'));
     } else {
       setStartDate(null);
       setEndDate(null);
-      const allData = Array.isArray(data) ? data : Object.values(data).flat();
-      setFilteredData(allData); // Flatten data for calculations
     }
-  };
+  }, []);
 
-  const filterDataByDateRange = (data: ApiResponse | CsvData[], start: string, end: string) => {
-    if (Array.isArray(data)) {
-      return data.filter(row => row.date >= start && row.date <= end);
-    } else {
-      const filtered: ApiResponse = {};
-      Object.entries(data).forEach(([key, value]) => {
-        filtered[key] = value.filter(row => row.date >= start && row.date <= end);
-      });
-      return filtered;
-    }
-  };
+  const filteredData = useMemo(() => {
+    const allData = Object.entries(data).flatMap(([source, entries]) =>
+      entries.map(entry => ({ ...entry, source }))
+    );
+    if (!startDate || !endDate) return allData;
+    return allData.filter(row => row.date >= startDate && row.date <= endDate);
+  }, [data, startDate, endDate]);
 
-  const formatDate = (date: string) => {
-    return dayjs(date, 'YYYYMMDD').format('DD-MM-YY');
-  };
 
-  const formatTime = (time: string) => {
-    return time.padStart(4, '0').replace(/^(\d{2})(\d{2})$/, '$1:$2');
-  };
+  const resetFilters = useCallback(() => {
+    setSelectedFiles([]);
+    setStartDate(null);
+    setEndDate(null);
+  }, []);
 
-  const columns: Column<CsvData>[] = React.useMemo(
-    () => [
-      {
-        Header: 'Date',
-        accessor: 'date',
-        Cell: ({ value }: { value: string }) => formatDate(value),
-      },
-      {
-        Header: 'Time',
-        accessor: 'time',
-        Cell: ({ value }: { value: string }) => formatTime(value),
-      },
-      { Header: 'Price Forecast', accessor: 'price_fcst' },
-    ],
-    []
-  );
+
+  const statistics = useMemo(() => {
+    return calculateStatistics(filteredData, selectedFiles);
+  }, [filteredData, selectedFiles]);
 
   const items = [
     {
       key: '1',
       label: 'Spreadsheet',
-      children: <Spreadsheet data={filteredData} columns={columns} />
+      children: (
+        <div className="h-[70vh] overflow-hidden">
+          <Spreadsheet data={filteredData} selectedFiles={selectedFiles} />
+        </div>
+      ),
     },
     {
       key: '2',
@@ -126,26 +113,19 @@ const CsvReader: React.FC = () => {
       children: (
         <div className="p-4">
           <h1 className="text-2xl font-bold mb-4">Price Forecast Graph</h1>
-          <LineChart data={filteredData} />
+          <LineChart data={filteredData} selectedFiles={selectedFiles} />
         </div>
-      )
+      ),
     },
     {
       key: '3',
       label: 'Statistics',
       children: (
         <div className="p-4">
-          <h1 className="text-2xl font-bold mb-4">Statistics</h1>
-          {statistics ? (
+          <h1 className="text-2xl font-bold mb-4"> Statistics for Selected Models</h1>
+          {selectedFiles.length > 0 ? (
             <Table
-              dataSource={[
-                { parameter: 'NOBS', value: statistics.NOBS },
-                { parameter: 'MAPE', value: statistics.MAPE },
-                { parameter: 'RMSE', value: statistics.RMSE },
-                { parameter: 'PEAK', value: statistics.PEAK },
-                { parameter: 'AVERAGE', value: statistics.AVERAGE },
-                { parameter: 'ENERGY', value: statistics.ENERGY },
-              ]}
+              dataSource={Object.entries(statistics).map(([parameter, value]) => ({ parameter, value }))}
               columns={[
                 { title: 'Parameter', dataIndex: 'parameter', key: 'parameter' },
                 { title: 'Value', dataIndex: 'value', key: 'value' },
@@ -155,7 +135,7 @@ const CsvReader: React.FC = () => {
               bordered
             />
           ) : (
-            <p>No data available for statistics</p>
+            <p> Please select at least one Model.</p>
           )}
         </div>
       ),
@@ -164,41 +144,49 @@ const CsvReader: React.FC = () => {
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-100">
-      <header className="bg-slate-600 text-white py-4 px-6 shadow-md">
-        <h1 className="text-3xl font-bold">Energy Forecast Dashboard</h1>
-      </header>
       <div className="flex-grow p-6">
         <div className="flex">
           <div className="w-1/4 p-4 bg-white shadow-lg rounded-lg mr-4">
             <h2 className="text-lg font-semibold mb-4">Filter Options</h2>
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700">Select CSV File</label>
+              <label className="block text-sm font-medium text-gray-700">Select Model</label>
               <Select
                 className="w-full mt-1"
-                value={selectedFile}
-                onChange={setSelectedFile}
+                mode="multiple"
+                value={selectedFiles}
+                onChange={setSelectedFiles}
+                placeholder="Select Model"
               >
-                <Option value="all">All Files</Option>
-                <Option value="t1">T1</Option>
-                <Option value="t2">T2</Option>
-                <Option value="t3">T3</Option>
-                <Option value="t4">T4</Option>
+                {csvFileNames.map(fileName => (
+                  <Option key={fileName} value={fileName}>
+                    {fileName.toUpperCase()}
+                  </Option>
+                ))}
               </Select>
             </div>
             <h2 className="text-lg font-semibold mb-2">Filter by Date Range</h2>
             <RangePicker
-              onChange={(dates) => handleDateChange(dates as [Dayjs, Dayjs] | null)}
+              onChange={handleDateChange}
               value={[
                 startDate ? dayjs(startDate) : null,
                 endDate ? dayjs(endDate) : null,
               ]}
-              className="w-full"
+              className="w-full mb-4"
               style={{
                 backgroundColor: '',
                 borderRadius: '8px',
                 padding: '8px',
               }}
             />
+            <Button 
+              onClick={resetFilters} 
+              type="primary" 
+              className="w-full bg-red-500"
+         
+              
+            >
+              Reset Filters
+            </Button>
           </div>
           <div className="w-3/4 p-4 bg-white shadow-lg rounded-lg">
             <Tabs defaultActiveKey="1" items={items} />
@@ -209,4 +197,4 @@ const CsvReader: React.FC = () => {
   );
 };
 
-export default CsvReader;
+export default Dashboard;

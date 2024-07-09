@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-export default function Dashboard() {
+export default function Auth() {
   const router = useRouter();
   const [email, setEmail] = useState<string>("");
   const [password, setPassword] = useState<string>("");
@@ -24,7 +24,7 @@ export default function Dashboard() {
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     try {
-      const response = await fetch("http://localhost:3000/api/login", { // Update URL to include the full backend URL
+      const response = await fetch("http://localhost:3000/api/login", { 
         method: "POST",
         headers: {
           "Content-Type": "application/json",

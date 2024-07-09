@@ -62,6 +62,11 @@ app.post('/api/login', (req, res) => {
   }
 });
 
+app.get('/',async (req,res) => {
+  res.send('Server is running');
+
+})
+
 // Get data from all CSV files
 app.get('/api/csv-data', async (req, res) => {
   try {
@@ -79,6 +84,20 @@ app.get('/api/csv-data', async (req, res) => {
   } catch (error) {
     console.error('Error getting CSV data:', error); // Debugging line
     res.status(500).json({ error: 'An error occurred while processing the CSV files' });
+  }
+});
+
+app.get('/api/csv-files', async (req, res) => {
+  try {
+    const folderPath = path.join(__dirname, 'forecast_data');
+    const files = await fs.readdir(folderPath);
+    const csvFiles = files.filter(file => path.extname(file).toLowerCase() === '.csv');
+    const fileNames = csvFiles.map(file => path.parse(file).name);
+
+    res.json(fileNames);
+  } catch (error) {
+    console.error('Error getting CSV file names:', error);
+    res.status(500).json({ error: 'An error occurred while listing the CSV files' });
   }
 });
 
