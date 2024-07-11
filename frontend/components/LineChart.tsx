@@ -1,23 +1,32 @@
-// LineChart.tsx
 "use client";
 import React from 'react';
 import { Line } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, ChartOptions, ChartDataset } from 'chart.js';
 import dayjs from 'dayjs';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
 interface CsvData {
+  id: number;
+  csvFileId: number;
   date: string;
   time: string;
-  price_fcst: string;
-  source: string;
+  priceFcst: number;
+  actualPrice: number;
+}
+
+interface ApiResponse {
+  [key: string]: CsvData[];
 }
 
 interface LineChartProps {
-  data: CsvData[];
+  data: ApiResponse;
   selectedFiles: string[];
 }
+
+type DatasetType = ChartDataset<'line', number[]> & {
+  borderDash?: number[];
+};
 
 const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
   const chartData = React.useMemo(() => {
@@ -27,21 +36,33 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
 
     let datePriceMap: { [date: string]: { [source: string]: number[] } } = {};
 
-    data.forEach(d => {
-      if (selectedFiles.includes(d.source)) {
-        const date = dayjs(d.date, 'YYYYMMDD').format('DD-MM-YY');
-        if (!datePriceMap[date]) {
-          datePriceMap[date] = {};
-        }
-        if (!datePriceMap[date][d.source]) {
-          datePriceMap[date][d.source] = [];
-        }
-        datePriceMap[date][d.source].push(parseFloat(d.price_fcst));
+    Object.entries(data).forEach(([source, entries]) => {
+      if (selectedFiles.includes(source)) {
+        entries.forEach(entry => {
+          const date = dayjs(entry.date, 'YYYYMMDD').format('DD-MM-YY');
+          if (!datePriceMap[date]) {
+            datePriceMap[date] = {};
+          }
+          if (!datePriceMap[date][source]) {
+            datePriceMap[date][source] = [];
+          }
+          datePriceMap[date][source].push(entry.priceFcst);
+        });
       }
     });
 
     const labels = Object.keys(datePriceMap).sort((a, b) => dayjs(a, 'DD-MM-YY').unix() - dayjs(b, 'DD-MM-YY').unix());
-    const datasets = selectedFiles.map(source => {
+
+    const colors = [
+      'rgb(255, 99, 132)',
+      'rgb(54, 162, 235)',
+      'rgb(255, 206, 86)',
+      'rgb(75, 192, 192)',
+      'rgb(153, 102, 255)',
+      'rgb(255, 159, 64)'
+    ];
+
+    const datasets: DatasetType[] = selectedFiles.map((source, index) => {
       const data = labels.map(date => {
         const prices = datePriceMap[date][source];
         const avgPrice = prices ? prices.reduce((a, b) => a + b, 0) / prices.length : 0;
@@ -51,10 +72,33 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
       return {
         label: source,
         data,
-        borderColor: getRandomColor(),
-        backgroundColor: getRandomColor(0.2),
+        borderColor: colors[index % colors.length],
+        backgroundColor: colors[index % colors.length].replace('rgb', 'rgba').replace(')', ', 0.2)'),
         fill: false,
+        tension: 0.1,
+        pointRadius: 3,
+        pointHoverRadius: 5,
       };
+    });
+
+ 
+    const actualPriceData = labels.map(date => {
+      const entries = Object.values(data)[0];
+      const entry = entries.find(e => dayjs(e.date, 'YYYYMMDD').format('DD-MM-YY') === date);
+      return entry ? entry.actualPrice : null;
+    });
+
+    datasets.push({
+      label: 'Actual Price',
+      data: actualPriceData.map(price => price ?? 0), 
+      borderColor: 'rgb(0, 0, 0)',
+      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+      fill: false,
+      tension: 0,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      borderWidth: 2,
+      borderDash: [5, 5],
     });
 
     return {
@@ -63,7 +107,7 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
     };
   }, [data, selectedFiles]);
 
-  const options = {
+  const options: ChartOptions<'line'> = {
     responsive: true,
     plugins: {
       legend: {
@@ -71,7 +115,15 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
       },
       title: {
         display: true,
-        text: 'Average Price Forecast Chart for Selected CSV Files',
+        text: 'Price Forecast and Actual Price Comparison',
+        font: {
+          size: 16,
+          weight: 'bold',
+        },
+      },
+      tooltip: {
+        mode: 'index' as const,
+        intersect: false,
       },
     },
     scales: {
@@ -79,6 +131,9 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
         title: {
           display: true,
           text: 'Date',
+          font: {
+            weight: 'bold',
+          },
         },
         ticks: {
           autoSkip: true,
@@ -88,21 +143,23 @@ const LineChart: React.FC<LineChartProps> = ({ data, selectedFiles }) => {
       y: {
         title: {
           display: true,
-          text: 'Price Forecast',
+          text: 'Price',
+          font: {
+            weight: 'bold',
+          },
         },
+        beginAtZero: false,
       },
+    },
+    interaction: {
+      mode: 'nearest' as const,
+      axis: 'x' as const,
+      intersect: false,
     },
   };
 
-  function getRandomColor(alpha = 1) {
-    const r = Math.floor(Math.random() * 256);
-    const g = Math.floor(Math.random() * 256);
-    const b = Math.floor(Math.random() * 256);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
   if (selectedFiles.length === 0) {
-    return <div> Please select at least one Model to display data.</div>;
+    return <div>Please select at least one Model to display data.</div>;
   }
 
   return <Line data={chartData} options={options} />;

@@ -1,7 +1,7 @@
-// Dashboard.tsx
 "use client";
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { DatePicker, Tabs, Select, Table, Button } from 'antd';
+import { DatePicker, Tabs, Select, Table, Button, Upload, message } from 'antd';
+import { UploadOutlined } from '@ant-design/icons';
 import 'antd/dist/reset.css';
 import dayjs, { Dayjs } from 'dayjs';
 import Spreadsheet from '@/components/Spreadsheet';
@@ -12,10 +12,12 @@ const { RangePicker } = DatePicker;
 const { Option } = Select;
 
 interface CsvData {
+  id: number;
+  csvFileId: number;
   date: string;
   time: string;
-  price_fcst: string;
-  source: string;
+  priceFcst: number;
+  actualPrice: number;
 }
 
 interface ApiResponse {
@@ -78,13 +80,13 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const filteredData = useMemo(() => {
-    const allData = Object.entries(data).flatMap(([source, entries]) =>
-      entries.map(entry => ({ ...entry, source }))
-    );
-    if (!startDate || !endDate) return allData;
-    return allData.filter(row => row.date >= startDate && row.date <= endDate);
+    if (!startDate || !endDate) return data;
+    const filtered: ApiResponse = {};
+    Object.entries(data).forEach(([source, entries]) => {
+      filtered[source] = entries.filter(row => row.date >= startDate && row.date <= endDate);
+    });
+    return filtered;
   }, [data, startDate, endDate]);
-
 
   const resetFilters = useCallback(() => {
     setSelectedFiles([]);
@@ -92,10 +94,33 @@ const Dashboard: React.FC = () => {
     setEndDate(null);
   }, []);
 
-
   const statistics = useMemo(() => {
     return calculateStatistics(filteredData, selectedFiles);
   }, [filteredData, selectedFiles]);
+
+  const handleFileChange = async (info: any) => {
+    const { file } = info;
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:3000/api/upload-csv', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        message.success('File uploaded successfully');
+        fetchCSVFileNames();
+        fetchData(selectedFiles);
+      } else {
+        throw new Error('Failed to upload file');
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      message.error('Error uploading file');
+    }
+  };
 
   const items = [
     {
@@ -122,7 +147,7 @@ const Dashboard: React.FC = () => {
       label: 'Statistics',
       children: (
         <div className="p-4">
-          <h1 className="text-2xl font-bold mb-4"> Statistics for Selected Models</h1>
+          <h1 className="text-2xl font-bold mb-4">Statistics for Selected Models</h1>
           {selectedFiles.length > 0 ? (
             <Table
               dataSource={Object.entries(statistics).map(([parameter, value]) => ({ parameter, value }))}
@@ -135,7 +160,7 @@ const Dashboard: React.FC = () => {
               bordered
             />
           ) : (
-            <p> Please select at least one Model.</p>
+            <p>Please select at least one Model.</p>
           )}
         </div>
       ),
@@ -178,15 +203,16 @@ const Dashboard: React.FC = () => {
                 padding: '8px',
               }}
             />
-            <Button 
-              onClick={resetFilters} 
-              type="primary" 
-              className="w-full bg-red-500"
-         
-              
-            >
+            <Button onClick={resetFilters} type="primary" className="w-full bg-red-500">
               Reset Filters
             </Button>
+            <h2 className="text-lg font-semibold mb-4 mt-4">Upload CSV</h2>
+            <Upload
+              customRequest={({ file }) => handleFileChange({ file })}
+              showUploadList={false}
+            >
+              <Button icon={<UploadOutlined />}>Click to Upload</Button>
+            </Upload>
           </div>
           <div className="w-3/4 p-4 bg-white shadow-lg rounded-lg">
             <Tabs defaultActiveKey="1" items={items} />
